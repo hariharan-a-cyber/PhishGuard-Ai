@@ -1,0 +1,15 @@
+# PhishGuard AI - runtime dependencies
+# Python 3.11+ recommended (tested on 3.12).
+#
+# The data layer uses Python's built-in sqlite3 module, so no database
+# driver or ORM is required. Models are plain scikit-learn estimators
+# persisted with joblib.
+
+Flask>=3.0,<4.0
+scikit-learn>=1.4
+numpy>=1.26
+pandas>=2.0
+joblib>=1.3
+
+# Optional: production WSGI server (uncomment to use `gunicorn app:app`)
+# gunicorn>=21.0

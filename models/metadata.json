@@ -1,0 +1,102 @@
+{
+  "version": "2.0.0",
+  "trained_at": "2026-06-14T05:20:10.354374+00:00",
+  "n_samples": 8000,
+  "n_features": 27,
+  "feature_names": [
+    "num_urls",
+    "max_url_length",
+    "has_ip_address",
+    "has_shortener",
+    "has_at_symbol",
+    "max_subdomains",
+    "max_domain_dots",
+    "has_https",
+    "has_suspicious_tld",
+    "has_punycode",
+    "domain_digit_ratio",
+    "domain_entropy",
+    "text_length",
+    "num_suspicious_keywords",
+    "has_urgent_language",
+    "exclamation_count",
+    "uppercase_ratio",
+    "money_term_count",
+    "credential_term_count",
+    "links_mentioned",
+    "sender_has_digits",
+    "sender_domain_length",
+    "sender_is_freemail",
+    "suspicious_sender_format",
+    "subject_length",
+    "subject_is_urgent",
+    "subject_has_reply_prefix"
+  ],
+  "models": [
+    "RandomForest",
+    "GradientBoosting"
+  ],
+  "metrics": {
+    "random_forest": {
+      "accuracy": 0.9769,
+      "precision": 0.9738,
+      "recall": 0.9799,
+      "f1": 0.9769
+    },
+    "gradient_boosting": {
+      "accuracy": 0.9769,
+      "precision": 0.9738,
+      "recall": 0.9799,
+      "f1": 0.9769
+    },
+    "ensemble": {
+      "accuracy": 0.9769,
+      "precision": 0.9738,
+      "recall": 0.9799,
+      "f1": 0.9769
+    },
+    "cv_f1_mean": 0.9784
+  },
+  "top_features": [
+    {
+      "name": "sender_domain_length",
+      "importance": 0.1843
+    },
+    {
+      "name": "has_https",
+      "importance": 0.1082
+    },
+    {
+      "name": "max_url_length",
+      "importance": 0.0973
+    },
+    {
+      "name": "has_suspicious_tld",
+      "importance": 0.086
+    },
+    {
+      "name": "uppercase_ratio",
+      "importance": 0.0797
+    },
+    {
+      "name": "max_domain_dots",
+      "importance": 0.0639
+    },
+    {
+      "name": "num_suspicious_keywords",
+      "importance": 0.051
+    },
+    {
+      "name": "max_subdomains",
+      "importance": 0.049
+    },
+    {
+      "name": "domain_entropy",
+      "importance": 0.0481
+    },
+    {
+      "name": "domain_digit_ratio",
+      "importance": 0.0473
+    }
+  ]
+}

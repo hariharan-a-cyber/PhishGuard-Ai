@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Local runtime database (regenerated at runtime)
+instance/*.db
+instance/*.sqlite3
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Notes:
+#   models/*.pkl and data/phishing_emails.csv are INTENTIONALLY committed so the
+#   app works out of the box. To rebuild them from scratch instead, delete them
+#   and run:  python data/generate_dataset.py  &&  python train_models.py
