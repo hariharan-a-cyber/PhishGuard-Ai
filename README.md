@@ -4,7 +4,7 @@
 sender and URLs and returns a calibrated risk verdict in real time — served
 through a clean security-console web dashboard and a JSON REST API.
 
-###  **[▶ Live demo — phishguardtech.vercel.app](https://phishguardtech.vercel.app)**
+###  **[Live demo — PhishGuard AI](https://phishguardtech.vercel.app)**
 
 PhishGuard AI was originally built as a **first-year hackathon project under my
 leadership of a 4-member team**. This repository is a full rebuild and
