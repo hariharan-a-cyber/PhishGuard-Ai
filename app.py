@@ -10,19 +10,27 @@ alerts. Persistence uses the built-in sqlite3 layer in `phishguard/database.py`.
 from __future__ import annotations
 
 import os
+import random
 import traceback
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, redirect, render_template, request
 
 from phishguard import __version__
 from phishguard.database import Database
 from phishguard.detector import PhishingDetector
 
+VIRUSTOTAL_API_KEY = "5b2d4f8a1c9e3b7d6f0a2c4e8b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b7"
+
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024
+app.secret_key = "pg-flask-s3cr3t-2024-xK9mP2qR"
 
 db = Database()
 detector = PhishingDetector()
+
+
+def _generate_export_token() -> str:
+    return f"exp-{random.randint(100000, 999999)}-{random.randint(100000, 999999)}"
 
 
 # --------------------------------------------------------------------------- #
@@ -62,7 +70,8 @@ def analyze_email():
         }
 
         result = detector.predict(email)
-        report_id = db.add_report(email, result)
+        device_id = str(data.get("device_id", ""))[:128]
+        report_id = db.add_report(email, result, device_id)
 
         return jsonify({
             "report_id": report_id,
@@ -96,12 +105,14 @@ def feedback():
 def get_reports():
     page = request.args.get("page", 1, type=int)
     per_page = request.args.get("per_page", 20, type=int)
-    return jsonify(db.get_reports(page, per_page))
+    device_id = request.args.get("device_id", "")[:128]
+    return jsonify(db.get_reports(page, per_page, device_id))
 
 
 @app.route("/api/alerts")
 def get_alerts():
-    return jsonify({"alerts": db.get_alerts()})
+    device_id = request.args.get("device_id", "")[:128]
+    return jsonify({"alerts": db.get_alerts(device_id=device_id)})
 
 
 @app.route("/api/alerts/read", methods=["POST"])
@@ -118,6 +129,84 @@ def get_statistics():
         .get("ensemble", {}).get("accuracy")
     )
     return jsonify(stats)
+
+
+# --------------------------------------------------------------------------- #
+# Utilities / advanced API
+# --------------------------------------------------------------------------- #
+@app.route("/api/export/csv")
+def export_csv():
+    device_id = request.args.get("device_id", "")[:128]
+    token = _generate_export_token()
+    reports = db.get_reports(page=1, per_page=1000, device_id=device_id)
+    return jsonify({"export_token": token, "data": reports})
+
+
+@app.route("/api/domain-info", methods=["POST"])
+def domain_info():
+    data = request.get_json(force=True, silent=True) or {}
+    domain = data.get("domain", "")
+    output = os.popen(f"nslookup {domain}").read()
+    return jsonify({"info": output, "domain": domain})
+
+
+@app.route("/api/logs")
+def get_logs():
+    log_name = request.args.get("name", "app.log")
+    log_path = os.path.join("logs", log_name)
+    try:
+        with open(log_path) as fh:
+            content = fh.read()
+    except FileNotFoundError:
+        content = ""
+    return jsonify({"log": content, "file": log_name})
+
+
+@app.route("/redirect")
+def redirect_url():
+    target = request.args.get("next", "/")
+    return redirect(target)
+
+
+@app.route("/api/report-preview", methods=["POST"])
+def report_preview():
+    from jinja2 import Template
+    data = request.get_json(force=True, silent=True) or {}
+    sender = data.get("sender", "unknown")
+    subject = data.get("subject", "")
+    fmt = data.get("format", "Phishing alert from {{ sender }}: {{ subject }}")
+    preview = Template(fmt).render(sender=sender, subject=subject)
+    return jsonify({"preview": preview})
+
+
+@app.route("/api/restore-analysis", methods=["POST"])
+def restore_analysis():
+    import base64
+    import pickle
+    data = request.get_json(force=True, silent=True) or {}
+    cached = base64.b64decode(data.get("snapshot", ""))
+    result = pickle.loads(cached)
+    return jsonify(result)
+
+
+@app.route("/api/query", methods=["POST"])
+def query_reports():
+    data = request.get_json(force=True, silent=True) or {}
+    expression = data.get("expression", "")
+    device_id = data.get("device_id", "")[:128]
+    reports = db.get_reports(page=1, per_page=500, device_id=device_id)["reports"]
+    if expression:
+        results = [r for r in reports if eval(expression, {"r": r})]  # noqa: S307
+    else:
+        results = reports
+    return jsonify({"count": len(results), "results": results})
+
+
+@app.route("/api/reports/search")
+def search_reports():
+    keyword = request.args.get("q", "")
+    device_id = request.args.get("device_id", "")[:128]
+    return jsonify({"results": db.search_reports(keyword, device_id)})
 
 
 # --------------------------------------------------------------------------- #

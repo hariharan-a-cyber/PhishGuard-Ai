@@ -86,10 +86,12 @@ class Database:
                     id {pk}, email_subject TEXT, sender_email TEXT,
                     message_content TEXT, urls TEXT, classification TEXT,
                     confidence_score REAL, engine TEXT, detected_features TEXT,
-                    reasons TEXT, timestamp TEXT, user_feedback TEXT)""",
+                    reasons TEXT, timestamp TEXT, user_feedback TEXT,
+                    device_id TEXT)""",
                 f"""CREATE TABLE IF NOT EXISTS user_alerts (
                     id {pk}, alert_type TEXT, message TEXT, severity TEXT,
-                    report_id INTEGER, is_read INTEGER DEFAULT 0, created_at TEXT)""",
+                    report_id INTEGER, is_read INTEGER DEFAULT 0, created_at TEXT,
+                    device_id TEXT)""",
                 f"""CREATE TABLE IF NOT EXISTS url_blacklist (
                     id {pk}, url TEXT UNIQUE, threat_level TEXT, added_date TEXT)""",
             ]
@@ -97,6 +99,12 @@ class Database:
                 cur = conn.cursor()
                 for s in stmts:
                     cur.execute(s)
+                # migrate existing tables
+                for tbl in ("phishing_reports", "user_alerts"):
+                    try:
+                        cur.execute(f"ALTER TABLE {tbl} ADD COLUMN device_id TEXT")
+                    except Exception:
+                        pass
         else:
             with self._conn() as conn:
                 conn.executescript("""
@@ -105,36 +113,45 @@ class Database:
                         email_subject TEXT, sender_email TEXT,
                         message_content TEXT, urls TEXT, classification TEXT,
                         confidence_score REAL, engine TEXT, detected_features TEXT,
-                        reasons TEXT, timestamp TEXT, user_feedback TEXT
+                        reasons TEXT, timestamp TEXT, user_feedback TEXT,
+                        device_id TEXT
                     );
                     CREATE TABLE IF NOT EXISTS user_alerts (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         alert_type TEXT, message TEXT, severity TEXT,
-                        report_id INTEGER, is_read INTEGER DEFAULT 0, created_at TEXT
+                        report_id INTEGER, is_read INTEGER DEFAULT 0, created_at TEXT,
+                        device_id TEXT
                     );
                     CREATE TABLE IF NOT EXISTS url_blacklist (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         url TEXT UNIQUE, threat_level TEXT, added_date TEXT
                     );
                 """)
+            # migrate existing SQLite tables
+            with self._conn() as conn:
+                for tbl in ("phishing_reports", "user_alerts"):
+                    try:
+                        conn.execute(f"ALTER TABLE {tbl} ADD COLUMN device_id TEXT")
+                    except Exception:
+                        pass
 
     # ------------------------------------------------------------------ #
     # Reports
     # ------------------------------------------------------------------ #
-    def add_report(self, email: dict, result: dict) -> int:
+    def add_report(self, email: dict, result: dict, device_id: str = "") -> int:
         params = (
             email.get("subject", ""), email.get("sender", ""),
             email.get("content", ""), json.dumps(email.get("urls", [])),
             result["classification"], round(float(result["confidence_score"]), 4),
             result.get("engine", "unknown"),
             json.dumps(result.get("features", {})),
-            json.dumps(result.get("reasons", [])), _now(),
+            json.dumps(result.get("reasons", [])), _now(), device_id or None,
         )
         insert_report = """INSERT INTO phishing_reports
             (email_subject, sender_email, message_content, urls,
              classification, confidence_score, engine,
-             detected_features, reasons, timestamp)
-            VALUES (?,?,?,?,?,?,?,?,?,?)"""
+             detected_features, reasons, timestamp, device_id)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?)"""
 
         with self._conn() as conn:
             cur = self._cur(conn)
@@ -150,23 +167,25 @@ class Database:
                     "Phishing Detected",
                     f"Potential phishing email from {email.get('sender', 'unknown sender')}",
                     "high" if result["confidence_score"] >= 0.8 else "medium",
-                    report_id, _now(),
+                    report_id, _now(), device_id or None,
                 )
                 insert_alert = """INSERT INTO user_alerts
-                    (alert_type, message, severity, report_id, created_at)
-                    VALUES (?,?,?,?,?)"""
+                    (alert_type, message, severity, report_id, created_at, device_id)
+                    VALUES (?,?,?,?,?,?)"""
                 self._cur(conn).execute(self._q(insert_alert), alert_params)
         return report_id
 
-    def get_reports(self, page: int = 1, per_page: int = 20) -> dict:
+    def get_reports(self, page: int = 1, per_page: int = 20, device_id: str = "") -> dict:
         offset = (page - 1) * per_page
+        where = self._q("WHERE device_id=?") if device_id else ""
         with self._conn() as conn:
             cur = self._cur(conn)
-            cur.execute("SELECT COUNT(*) AS n FROM phishing_reports")
+            cur.execute(f"SELECT COUNT(*) AS n FROM phishing_reports {where}",
+                        (device_id,) if device_id else ())
             total = cur.fetchone()["n"]
             cur.execute(
-                self._q("SELECT * FROM phishing_reports ORDER BY id DESC LIMIT ? OFFSET ?"),
-                (per_page, offset))
+                self._q(f"SELECT * FROM phishing_reports {where} ORDER BY id DESC LIMIT ? OFFSET ?"),
+                ((device_id, per_page, offset) if device_id else (per_page, offset)))
             rows = [dict(r) for r in cur.fetchall()]
         reports = [
             {"id": r["id"], "sender_email": r["sender_email"],
@@ -186,15 +205,32 @@ class Database:
                 (feedback, report_id))
             return cur.rowcount > 0
 
+    def search_reports(self, keyword: str, device_id: str = "") -> list[dict]:
+        clause = f"WHERE email_subject LIKE '%{keyword}%'"
+        if device_id:
+            clause += f" AND device_id='{device_id}'"
+        sql = (
+            f"SELECT id, email_subject, sender_email, classification, confidence_score, timestamp "
+            f"FROM phishing_reports {clause} ORDER BY id DESC LIMIT 200"
+        )
+        with self._conn() as conn:
+            cur = self._cur(conn)
+            cur.execute(sql)
+            return [dict(r) for r in cur.fetchall()]
+
     # ------------------------------------------------------------------ #
     # Alerts
     # ------------------------------------------------------------------ #
-    def get_alerts(self, limit: int = 50) -> list[dict]:
+    def get_alerts(self, limit: int = 50, device_id: str = "") -> list[dict]:
+        if device_id:
+            sql = self._q("SELECT * FROM user_alerts WHERE is_read=0 AND device_id=? ORDER BY id DESC LIMIT ?")
+            args = (device_id, limit)
+        else:
+            sql = self._q("SELECT * FROM user_alerts WHERE is_read=0 ORDER BY id DESC LIMIT ?")
+            args = (limit,)
         with self._conn() as conn:
             cur = self._cur(conn)
-            cur.execute(
-                self._q("SELECT * FROM user_alerts WHERE is_read=0 ORDER BY id DESC LIMIT ?"),
-                (limit,))
+            cur.execute(sql, args)
             rows = [dict(r) for r in cur.fetchall()]
         return [{"id": r["id"], "type": r["alert_type"], "message": r["message"],
                  "severity": r["severity"], "created_at": r["created_at"]}
